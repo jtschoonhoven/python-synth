@@ -1,0 +1,6 @@
+attrs==17.3.0
+flake8==3.3.0
+pyaudio==0.2.11  # requires portaudio C lib (`brew install portaudio`)
+pygame==1.9.3
+six==1.11.0
+typing==3.6.2
