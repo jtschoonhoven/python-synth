@@ -21,7 +21,6 @@ from constants import (
     ADSR_STATUS,
     EVENT_QUEUE_MAX_SIZE,
     NOTE_EVENTS,
-    NOTE_OFF_SAMPLE_AMPLITUDE,
 )
 
 if TYPE_CHECKING:
@@ -134,7 +133,7 @@ class Synth(Instrument):
                 # NOTE: this could be approximated for better performance
                 relative_amplitide = math.sin(normalized_idx * 2 * math.pi)
                 # scale the amplitude to an integer between 0 and 255 (inclusive)
-                scaled_amplitude = int(relative_amplitide * 127 + 128)
+                scaled_amplitude = int(relative_amplitide * 127)
                 # apply instrument volume
                 volumized_amplitude = scaled_amplitude * (self.volume // 255)
                 # apply note velocity
@@ -144,7 +143,7 @@ class Synth(Instrument):
 
             while True:
                 if note.adsr_status == ADSR_STATUS['OFF']:
-                    yield NOTE_OFF_SAMPLE_AMPLITUDE
+                    yield 0
                 else:
                     for sample_amplitude in sample_amplitude_array:
                         yield sample_amplitude
@@ -195,11 +194,10 @@ class Synth(Instrument):
                 amplitudes_sum += sample_amplitude
 
             if num_amplitudes:
-                combined_samples = int(amplitudes_sum / num_amplitudes)
-                print(combined_samples)
+                combined_samples = int(amplitudes_sum / num_amplitudes) + 127
                 yield combined_samples
             else:
-                yield NOTE_OFF_SAMPLE_AMPLITUDE
+                yield 127
 
 
 def profile(num_runs):
