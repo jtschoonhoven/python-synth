@@ -17,7 +17,12 @@ from six.moves import range
 
 import constants
 import helpers
-from constants import EVENT_QUEUE_MAX_SIZE, NOTE_EVENTS
+from constants import (
+    ADSR_STATUS,
+    EVENT_QUEUE_MAX_SIZE,
+    NOTE_EVENTS,
+    NOTE_OFF_SAMPLE_AMPLITUDE,
+)
 
 if TYPE_CHECKING:
     from typing import Any, Dict, Iterable, Tuple  # noqa
@@ -25,12 +30,12 @@ if TYPE_CHECKING:
 
 @attr.attrs(slots=True)
 class Note(object):
-    midi_note = attr.attrib()                  # type: int
-    volume = attr.attrib(default=100)          # type: int
-    velocity = attr.attrib(default=255)        # type: int
-    status = attr.attrib(default=0)            # type: int  # 0=off; 1=pressed; 2=decay;
-    is_active = attr.attrib(default=False)     # type: bool
-    sample_generator = attr.attrib(init=None)  # type: Iterable[int]
+    midi_note = attr.attrib()                              # type: int
+    velocity = attr.attrib(default=255)                    # type: int
+    # adsr_status describes the note lifecycle
+    # 0=off; 1=attack; 2=decay; 3=sustain; 4=release
+    adsr_status = attr.attrib(default=ADSR_STATUS['OFF'])  # type: int
+    sample_generator = attr.attrib(init=None)              # type: Iterable[int]
 
 
 @attr.attrs(slots=True, frozen=True)
@@ -58,6 +63,7 @@ class Instrument(object):
         init=False,
         default=attr.Factory(functools.partial(deque, maxlen=EVENT_QUEUE_MAX_SIZE)),
     )
+    volume = attr.attrib(default=255)  # type: int
 
     @abstractmethod
     def note_on(self, note):
@@ -75,7 +81,7 @@ class Instrument(object):
         pass
 
     @abstractmethod
-    def get_note(self, midi_note, volume=None, velocity=None):
+    def get_note(self, midi_note, velocity=None):
         # type: (int, Optional[int], Optional[int]) -> Note
         pass
 
@@ -90,16 +96,15 @@ class Synth(Instrument):
 
     def __attrs_post_init__(self, *args, **kwargs):
         # type: (*List[Any],  **Dict[Any]) -> None
+        """
+        Every instrument has its own output stream.
+        """
         self.stream = helpers.get_pyaudio_stream(
             self.SAMPLES_PER_SECOND,
             self.SAMPLE_BYTE_WIDTH,
             self.NUM_AUDIO_CHANNELS,
             self.sample_generator,
         )
-
-        # initialize all possible notes
-        for midi_note in range(256):
-            self._notes[midi_note] = self.get_note(midi_note)
 
     def note_on(self, note):
         # type: (Note) -> None
@@ -111,16 +116,9 @@ class Synth(Instrument):
         note_off_event = NoteEvent(event_type=NOTE_EVENTS['NOTE_OFF'], note=note)
         self._notes_event_queue.append(note_off_event)
 
-    def get_note(self, midi_note, volume=None, velocity=None):
+    def get_note(self, midi_note, **kwargs):
         # type: (int, Optional[int], Optional[int]) -> Note
-        note = self._notes.get(midi_note)
-
-        if note is None:
-            note = Note(midi_note)
-        if volume is not None:
-            note.volume = volume
-        if velocity is not None:
-            note.velocity = velocity
+        note = Note(midi_note, **kwargs)
 
         def sample_generator():
             # type: (int, int) -> Iterable[int]
@@ -134,20 +132,24 @@ class Synth(Instrument):
                 normalized_idx = sample_idx / samples_per_cycle
                 # calculate the amplitude for this frame as a float between -1 and 1
                 # NOTE: this could be approximated for better performance
-                relative_amplitide = math.cos(normalized_idx * 2 * math.pi) * -1
+                relative_amplitide = math.sin(normalized_idx * 2 * math.pi)
                 # scale the amplitude to an integer between 0 and 255 (inclusive)
                 scaled_amplitude = int(relative_amplitide * 127 + 128)
+                # apply instrument volume
+                volumized_amplitude = scaled_amplitude * (self.volume // 255)
+                # apply note velocity
+                velocitized_amplitude = volumized_amplitude * (note.velocity // 255)
                 # add amplitude to byte array
-                sample_amplitude_array.append(scaled_amplitude)
+                sample_amplitude_array.append(velocitized_amplitude)
 
             while True:
-                if note.status == 0:
-                    yield 0
+                if note.adsr_status == ADSR_STATUS['OFF']:
+                    yield NOTE_OFF_SAMPLE_AMPLITUDE
                 else:
                     for sample_amplitude in sample_amplitude_array:
                         yield sample_amplitude
-                    if note.status == 2:
-                        note.status = 0  # turn note off at end of cycle
+                    if note.adsr_status == ADSR_STATUS['RELEASE']:
+                        note.adsr_status = ADSR_STATUS['OFF']
 
         note.sample_generator = sample_generator()
 
@@ -162,19 +164,21 @@ class Synth(Instrument):
             num_amplitudes = 0
             amplitudes_sum = 0
 
-            # first process the note event queue
+            # process the note event queue
             while self._notes_event_queue:
                 note_event = self._notes_event_queue.popleft()
 
                 if note_event.event_type == NOTE_EVENTS['NOTE_ON']:
-                    note = self._notes[note_event.note.midi_note]
-                    note.status = 1
+                    note = note_event.note
+                    note.adsr_status = ADSR_STATUS['ATTACK']
+                    self._notes[note.midi_note] = note_event.note
                     notes_on.add(note.midi_note)
 
                 if note_event.event_type == NOTE_EVENTS['NOTE_OFF']:
                     note = self._notes[note_event.note.midi_note]
-                    note.status = 2
+                    note.adsr_status = ADSR_STATUS['RELEASE']
 
+            # clear any notes that have ended
             for midi_note in dead_notes:
                 notes_on.discard(midi_note)
             dead_notes.clear()
@@ -184,20 +188,18 @@ class Synth(Instrument):
                 note = self._notes[midi_note]
                 sample_amplitude = next(note.sample_generator)
 
-                if note.status == 0:
+                if note.adsr_status == ADSR_STATUS['OFF']:
                     dead_notes.add(midi_note)
-
-                if note.volume:
-                    sample_amplitude = sample_amplitude * (note.volume / 255)
 
                 num_amplitudes += 1
                 amplitudes_sum += sample_amplitude
 
             if num_amplitudes:
                 combined_samples = int(amplitudes_sum / num_amplitudes)
+                print(combined_samples)
                 yield combined_samples
             else:
-                yield 0
+                yield NOTE_OFF_SAMPLE_AMPLITUDE
 
 
 def profile(num_runs):
@@ -236,7 +238,7 @@ if __name__ == '__main__':  # noqa
         elif event.type == pygame.KEYDOWN:
             if event.key in constants.KEYBOARD_NOTE_MAPPING_QWERTY:
                 midi_note = constants.KEYBOARD_NOTE_MAPPING_QWERTY[event.key]
-                note = Note(midi_note, volume=255)
+                note = synth.get_note(midi_note)
                 synth.note_on(note)
 
             elif event.key in (pygame.K_ESCAPE, pygame.K_BACKSPACE):
@@ -246,5 +248,5 @@ if __name__ == '__main__':  # noqa
         elif event.type == pygame.KEYUP:
             if event.key in constants.KEYBOARD_NOTE_MAPPING_QWERTY:
                 midi_note = constants.KEYBOARD_NOTE_MAPPING_QWERTY[event.key]
-                note = Note(midi_note)
+                note = synth.get_note(midi_note)
                 synth.note_off(note)
