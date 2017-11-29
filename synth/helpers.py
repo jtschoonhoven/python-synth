@@ -51,7 +51,7 @@ def get_pyaudio_stream(
     generator = sample_generator()
 
     def stream_callback(_, num_samples, *args):
-        # type: (Iterable[int], None, int, *Any) -> Tuple[bytes, int]
+        # type: (None, int, *Any) -> Tuple[bytes, int]
         def _int_iterator():
             # type: () -> int
             for _ in range(num_samples):

@@ -9,6 +9,9 @@
 ```bash
 cd /path/to/python-synth
 
+# install portaudio (mac only)
+brew install portaudio
+
 # init virtualenv
 virtualenv venv
 source venv/bin/activate
@@ -18,8 +21,8 @@ pip install -r requirements.txt
 pip3 install -r requirements.txt
 
 # do the thing
-python2 synth/synth.py
-python3 synth/synth.py
+python2 synth/keyboard.py
+python3 synth/keyboard.py
 
 # now you can play notes on your keyboard
 ```
