@@ -1,24 +1,10 @@
 import pyaudio
+from settings import SAMPLE_BIT_DEPTH
 
 
 PYAUDIO = pyaudio.PyAudio()
 
 BITS_PER_BYTE = 8
-
-# https://en.wikipedia.org/wiki/Sampling_(signal_processing)#Sampling_rate
-SAMPLES_PER_SECOND_OPTIONS = {
-    'TELEPHONE_QUALITY': 16000,
-    'RADIO_QUALITY': 32000,
-    'DIGITAL_STANDARD': 48000,
-    'DIGITAL_RECORDING_STANDARD': 96000,
-    'HIGH_DEFINITION': 192000,
-}
-
-SAMPLE_BIT_DEPTH_OPTIONS = {
-    '8_BIT': 8,
-    '16_BIT': 16,
-    '32_BIT': 32,
-}
 
 LETTER_TO_MIDI_NOTE_MAP = {
     'C': 60,
@@ -50,10 +36,4 @@ ADSR_STATUS = {
 
 
 # SDL enforces a maximum queue size that must be respected
-EVENT_QUEUE_MAX_SIZE = 127
-
-DEFAULT_SAMPLES_PER_SECOND = SAMPLES_PER_SECOND_OPTIONS['HIGH_DEFINITION']
-DEFAULT_SAMPLE_BIT_DEPTH = SAMPLE_BIT_DEPTH_OPTIONS['8_BIT']
-DEFAULT_SAMPLE_BYTE_WIDTH = DEFAULT_SAMPLE_BIT_DEPTH / BITS_PER_BYTE
-DEFAULT_NUM_AUDIO_CHANNELS = 1  # e.g. 1=mono; 2=stereo
-DEFAULT_POLYPHONY = 8  # num notes that can be played simultaneously
+SAMPLE_BYTE_WIDTH = SAMPLE_BIT_DEPTH / BITS_PER_BYTE
