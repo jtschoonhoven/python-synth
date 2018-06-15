@@ -96,7 +96,8 @@ class Processor(object):
                 amplitudes_sum += sample_amplitude
 
             if num_amplitudes:
-                combined_samples = amplitudes_sum // num_amplitudes + 127
-                yield combined_samples
+                combined_samples = amplitudes_sum / num_amplitudes
+                scaled_amplitude = int(combined_samples * 127) + 127
+                yield scaled_amplitude
             else:
                 yield 127

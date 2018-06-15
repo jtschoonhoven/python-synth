@@ -18,10 +18,10 @@ if TYPE_CHECKING:
     from typing import Any, Dict, Iterable, Tuple  # noqa
 
 
-DEFAULT_ATTACK_MS = 10
-DEFAULT_DECAY_MS = 10
+DEFAULT_ATTACK_MS = 1000
+DEFAULT_DECAY_MS = 1000
 DEFAULT_SUSTAIN_LEVEL = 127
-DEFAULT_RELEASE_MS = 10
+DEFAULT_RELEASE_MS = 1000
 
 
 @attr.attrs(slots=True)
@@ -129,11 +129,11 @@ class Synth(Instrument):
                 # NOTE: this could be approximated for better performance
                 relative_amplitide = math.sin(normalized_idx * 2 * math.pi)
                 # scale the amplitude to an integer between 0 and 255 (inclusive)
-                scaled_amplitude = int(relative_amplitide * 127)
+                # scaled_amplitude = int(relative_amplitide * 127)
                 # apply instrument volume
-                volumized_amplitude = scaled_amplitude * (self.volume // 255)
+                volumized_amplitude = relative_amplitide * (self.volume / 255)
                 # apply note velocity
-                velocitized_amplitude = volumized_amplitude * (note.velocity // 255)
+                velocitized_amplitude = volumized_amplitude * (note.velocity / 255)
                 # add amplitude to byte array
                 sample_amplitude_array.append(velocitized_amplitude)
 
@@ -143,7 +143,7 @@ class Synth(Instrument):
                     continue
 
                 for sample_amplitude in sample_amplitude_array:
-                    yield int(sample_amplitude * note.get_envelope_amplitude_multiplier())
+                    yield sample_amplitude * note.get_envelope_amplitude_multiplier()
                     note.incr_adsr_sample_index()
 
         note.sample_generator = sample_generator()
