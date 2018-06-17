@@ -2,9 +2,9 @@ import sys
 
 import pygame
 
-from helpers import letter_note_to_midi_note
-from processor import Processor
-from synth import Synth
+from python_synth.helpers import letter_note_to_midi_note
+from python_synth.processor import Processor
+from python_synth.synth import Synth
 
 
 KEYBOARD_NOTE_MAPPING = {
@@ -32,7 +32,8 @@ KEYBOARD_NOTE_MAPPING = {
 }
 
 
-if __name__ == '__main__':
+def run():
+    # () -> None
     pygame.display.init()  # for some reason pygame events depend on this module
     synth = Synth()
     processor = Processor()
@@ -59,3 +60,7 @@ if __name__ == '__main__':
                 midi_note = KEYBOARD_NOTE_MAPPING[event.key]
                 note = synth.get_note(midi_note)
                 processor.note_off(note)
+
+
+if __name__ == '__main__':
+    run()

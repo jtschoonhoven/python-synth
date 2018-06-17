@@ -1,5 +1,4 @@
 # coding: utf-8
-from __future__ import absolute_import
 from __future__ import division
 
 from functools import wraps
@@ -7,7 +6,7 @@ from functools import wraps
 import pyaudio
 import six
 
-import constants
+from python_synth import constants
 
 
 def simple_cache(func):

@@ -1,5 +1,4 @@
 # coding: utf-8
-from __future__ import absolute_import
 from __future__ import division
 
 import attr
@@ -8,9 +7,13 @@ from collections import deque
 
 from typing import TYPE_CHECKING
 
-import helpers
-from constants import ADSR_STATUS, NOTE_EVENTS, SAMPLE_BYTE_WIDTH
-from settings import EVENT_QUEUE_MAX_SIZE, NUM_AUDIO_CHANNELS, SAMPLES_PER_SECOND
+from python_synth import helpers
+from python_synth.constants import NOTE_EVENTS, SAMPLE_BYTE_WIDTH
+from python_synth.settings import (
+    EVENT_QUEUE_MAX_SIZE,
+    NUM_AUDIO_CHANNELS,
+    SAMPLES_PER_SECOND,
+)
 
 if TYPE_CHECKING:
     from typing import Any, Dict, Iterable, Tuple  # noqa
@@ -24,6 +27,10 @@ class NoteEvent(object):
 
 @attr.attrs(slots=True)
 class Processor(object):
+    """
+    The Processor collects and manages Note objects and processes them to generate a
+    stream of samples.
+    """
 
     __weakref__ = attr.ib(init=False, hash=False, repr=False, cmp=False)
 
@@ -47,57 +54,65 @@ class Processor(object):
         )
 
     def note_on(self, note):
+        """
+        Add a new Note to the queue.
+        """
         # type: (Note) -> None
         note_on_event = NoteEvent(event_type=NOTE_EVENTS['NOTE_ON'], note=note)
         self._notes_event_queue.append(note_on_event)
 
     def note_off(self, note):
+        """
+        Schedule an existing Note to be removed from the queue.
+        """
         # type: (Note) -> None
         note_off_event = NoteEvent(event_type=NOTE_EVENTS['NOTE_OFF'], note=note)
         self._notes_event_queue.append(note_off_event)
 
     def sample_generator(self):
+        """
+        Loop through active notes and generate a stream of samples.
+        """
         # type: () -> Iterable[int]
-        notes_on = set()  # type: Set[int]
-        dead_notes = set()  # type: Set[int]
+        notes_on = set()  # type: Set[Note]
+        dead_notes = set()  # type: Set[Note]
 
         while True:
             num_amplitudes = 0
             amplitudes_sum = 0
 
-            # process the note event queue
+            # process the note event queue until empty
             while self._notes_event_queue:
                 note_event = self._notes_event_queue.popleft()
 
                 if note_event.event_type == NOTE_EVENTS['NOTE_ON']:
                     note = note_event.note
-                    note.set_adsr_status(ADSR_STATUS['ATTACK'])
+                    note.set_key_down()
+                    # TODO: handle multiple Note objects for same midi note
                     self._notes[note.midi_note] = note_event.note
-                    notes_on.add(note.midi_note)
+                    notes_on.add(note)
 
                 if note_event.event_type == NOTE_EVENTS['NOTE_OFF']:
                     note = self._notes[note_event.note.midi_note]
-                    note.set_adsr_status(ADSR_STATUS['RELEASE'])
+                    note.set_key_up()
 
             # clear any notes that have ended
-            for midi_note in dead_notes:
-                notes_on.discard(midi_note)
+            for note in dead_notes:
+                notes_on.discard(note)
             dead_notes.clear()
 
             # then play each active note
-            for midi_note in notes_on:
-                note = self._notes[midi_note]
-                sample_amplitude = next(note.sample_generator)
-
-                if note.adsr_status == ADSR_STATUS['OFF']:
-                    dead_notes.add(midi_note)
+            for note in notes_on:
+                try:
+                    note_sample = next(note)
+                except StopIteration:
+                    dead_notes.add(note)
 
                 num_amplitudes += 1
-                amplitudes_sum += sample_amplitude
+                amplitudes_sum += note_sample.amplitude
 
             if num_amplitudes:
-                combined_samples = amplitudes_sum / num_amplitudes
-                scaled_amplitude = int(combined_samples * 127) + 127
-                yield scaled_amplitude
+                combined_samples = amplitudes_sum // num_amplitudes + 127
+                yield combined_samples
             else:
                 yield 127
