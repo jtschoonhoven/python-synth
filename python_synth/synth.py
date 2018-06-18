@@ -20,9 +20,9 @@ if TYPE_CHECKING:
     from typing import Any, Dict, Iterable, Tuple  # noqa
 
 
-DEFAULT_ATTACK_MS = 1000
-DEFAULT_DECAY_MS = 1000
-DEFAULT_RELEASE_MS = 1000
+DEFAULT_ATTACK_MS = 100
+DEFAULT_DECAY_MS = 100
+DEFAULT_RELEASE_MS = 100
 DEFAULT_SUSTAIN_LEVEL = ANALOGUE_MAX
 
 
@@ -44,7 +44,7 @@ NoteSample = NamedTuple(
 )
 
 
-@attr.s(slots=True, hash=True, cmp=False)
+@attr.s(slots=True, hash=True)
 class Note(object):
     """
     A Note is an iterator that returns NoteSamples. There will be one Note for every time
@@ -55,9 +55,13 @@ class Note(object):
 
     # TODO: add support for velocity (and decide how it links to ADSR)
     """
-    midi_note = attr.ib()                  # type: int
-    sample_generator = attr.ib(repr=None)  # type: Iterable[int]
+    midi_note = attr.ib()  # type: int
+    sample_generator = attr.ib(
+        repr=None,
+        cmp=False,
+    )  # type: Iterable[int]
 
+    # adsr public methods
     attack_ms = attr.ib(
         default=DEFAULT_ATTACK_MS,
         validator=validate_milliseconds,
@@ -79,7 +83,6 @@ class Note(object):
     _sample_idx = attr.ib(init=None)                     # type: int
     _release_sample_idx = attr.ib(init=None)             # type: int
     _volume = attr.ib(init=None)                         # type: int
-    _key_status = attr.ib(init=None)                     # type: int
     _adsr_status = attr.ib(init=None)                    # type: int
 
     # computed volume envelopes
@@ -95,11 +98,11 @@ class Note(object):
     )  # type: Dict[int, int]
 
     # ADSR constants
-    _num_attack_samples = attr.ib(init=None, repr=None)   # type: int
-    _num_decay_samples = attr.ib(init=None, repr=None)    # type: int
-    _num_release_samples = attr.ib(init=None, repr=None)  # type: int
-    _decay_start_idx = attr.ib(init=None, repr=None)      # type: int
-    _sustain_start_idx = attr.ib(init=None, repr=None)    # type: int
+    _num_attack_samples = attr.ib(init=None, repr=None, cmp=False)   # type: int
+    _num_decay_samples = attr.ib(init=None, repr=None, cmp=False)    # type: int
+    _num_release_samples = attr.ib(init=None, repr=None, cmp=False)  # type: int
+    _decay_start_idx = attr.ib(init=None, repr=None, cmp=False)      # type: int
+    _sustain_start_idx = attr.ib(init=None, repr=None, cmp=False)    # type: int
 
     def __attrs_post_init__(self, *args, **kwargs):
         """
@@ -109,7 +112,6 @@ class Note(object):
         self._sample_idx = 0
         self._release_sample_idx = 0
         self._volume = 0
-        self._key_status = KEY_STATUS['KEY_UP']
         self._adsr_status = ADSR_STATUS['OFF']
 
         # precalculate useful ADSR values
@@ -154,7 +156,6 @@ class Note(object):
         This must be called *before* iterating through samples.
         """
         # type: () -> None
-        self._key_status = KEY_STATUS['KEY_DOWN']
         self._adsr_status = ADSR_STATUS['ATTACK']
 
     def set_key_up(self):
@@ -162,7 +163,6 @@ class Note(object):
         Release note when keyboard key is raised.
         """
         # type: () -> None
-        self._key_status = KEY_STATUS['KEY_UP']
         self._adsr_status = ADSR_STATUS['RELEASE']
         self._release_sample_idx_volume_map = self._get_release_sample_idx_volume_map(
             self.release_ms,
@@ -174,11 +174,6 @@ class Note(object):
         Return the next NoteSample or raise StopIteration.
         """
         # type: () -> NoteSample
-        if self._adsr_status == ADSR_STATUS['OFF']:
-            # make sure to call `set_key_down` *before* iterating
-            raise StopIteration()
-
-        # get sample and volume for this iteration
         sample = next(self.sample_generator)
         volume = self._volume
 
@@ -189,6 +184,7 @@ class Note(object):
 
         # update ADSR status for next iteration
         next_adsr_status = self._get_new_adsr_status(
+            self._adsr_status,
             self._sample_idx,
             self._release_sample_idx,
             self._decay_start_idx,
@@ -197,6 +193,8 @@ class Note(object):
         )
         if next_adsr_status is not None:
             self._adsr_status = next_adsr_status
+            if next_adsr_status == ADSR_STATUS['OFF']:
+                raise StopIteration()
 
         # update volume for next iteration
         next_volume = self._get_new_volume(
@@ -239,6 +237,7 @@ class Note(object):
 
     @staticmethod
     def _get_new_adsr_status(
+        old_adsr_status,      # type: int
         sample_idx,           # type: int
         release_sample_idx,   # type: int
         decay_start_idx,      # type: int
@@ -249,17 +248,20 @@ class Note(object):
         Return the ADSR status for the given sample index.
         """
         # type: (...) -> int
-        if sample_idx == decay_start_idx:
-            return ADSR_STATUS['DECAY']
+        if old_adsr_status == ADSR_STATUS['ATTACK']:
+            if sample_idx == decay_start_idx:
+                return ADSR_STATUS['DECAY']
 
-        if sample_idx == sustain_start_idx:
-            return ADSR_STATUS['SUSTAIN']
+        if old_adsr_status == ADSR_STATUS['DECAY']:
+            if sample_idx == sustain_start_idx:
+                return ADSR_STATUS['SUSTAIN']
 
-        if release_sample_idx == num_release_samples:
-            return ADSR_STATUS['OFF']
+        if old_adsr_status == ADSR_STATUS['RELEASE']:
+            if release_sample_idx == num_release_samples:
+                return ADSR_STATUS['OFF']
 
-        if release_sample_idx > num_release_samples:
-            raise SynthError('ADAR cannot change while note is off')
+        if old_adsr_status == ADSR_STATUS['OFF']:
+            raise SynthError('ADSR cannot change while note is off')
 
     @staticmethod
     def _get_sample_idx_volume_map(num_attack_samples, num_decay_samples, sustain_level):
@@ -322,6 +324,10 @@ class Note(object):
         # type: (int, int) -> Dict[int, int]
         volume_map = {}  # Dict[int, int]
         num_release_samples = (release_ms * SAMPLES_PER_SECOND) // 1000
+
+        # no further changes needed if volume is already at 0
+        if not start_volume:
+            return volume_map
 
         # release: more samples than volume changes
         if num_release_samples > start_volume:

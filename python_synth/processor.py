@@ -89,16 +89,16 @@ class Processor(object):
                     note = note_event.note
                     note.set_key_down()
                     # TODO: handle multiple Note objects for same midi note
-                    self._notes[note.midi_note] = note_event.note
+                    self._notes[note.midi_note] = note
                     notes_on.add(note)
 
                 if note_event.event_type == NOTE_EVENTS['NOTE_OFF']:
-                    note = self._notes[note_event.note.midi_note]
+                    note = self._notes.pop(note_event.note.midi_note)
                     note.set_key_up()
 
             # clear any notes that have ended
             for note in dead_notes:
-                notes_on.discard(note)
+                notes_on.remove(note)
             dead_notes.clear()
 
             # then play each active note

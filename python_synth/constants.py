@@ -43,7 +43,7 @@ ADSR_STATUS = {
 # an "analogue" is an instrument setting that varies within a range e.g. velocity
 # it's called an "analogue" because its use mimics an analogue dial or signal
 ANALOGUE_MIN = 0
-ANALOGUE_MAX = 256
+ANALOGUE_MAX = 255
 
 AMPLITUDE_MIN = SAMPLE_BIT_DEPTH // -2
 AMPLITUDE_MAX = SAMPLE_BIT_DEPTH // 2
