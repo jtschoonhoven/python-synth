@@ -20,10 +20,10 @@ if TYPE_CHECKING:
     from typing import Any, Dict, Iterable, Tuple  # noqa
 
 
-DEFAULT_ATTACK_MS = 100
-DEFAULT_DECAY_MS = 100
-DEFAULT_RELEASE_MS = 100
-DEFAULT_SUSTAIN_LEVEL = ANALOGUE_MAX
+DEFAULT_ATTACK_MS = 1000
+DEFAULT_DECAY_MS = 1000
+DEFAULT_RELEASE_MS = 1000
+DEFAULT_SUSTAIN_LEVEL = ANALOGUE_MAX // 2
 
 
 """
@@ -53,6 +53,9 @@ class Note(object):
     Note objects should only be created via the `get_note` method on an Instrument class.
     It is the Instrument's job to provision the Note with a `sample_generator`.
 
+    Keep in mind that any mutable attribute in the class *must* be excluded from
+    comparison with cmp=False, or else the class won't hash properly.
+
     # TODO: add support for velocity (and decide how it links to ADSR)
     """
     midi_note = attr.ib()  # type: int
@@ -80,10 +83,10 @@ class Note(object):
     )  # type: int
 
     # private attributes set on initialization
-    _sample_idx = attr.ib(init=None)                     # type: int
-    _release_sample_idx = attr.ib(init=None)             # type: int
-    _volume = attr.ib(init=None)                         # type: int
-    _adsr_status = attr.ib(init=None)                    # type: int
+    _sample_idx = attr.ib(init=None, cmp=False)          # type: int
+    _release_sample_idx = attr.ib(init=None, cmp=False)  # type: int
+    _volume = attr.ib(init=None, cmp=False)              # type: int
+    _adsr_status = attr.ib(init=None, cmp=False)         # type: int
 
     # computed volume envelopes
     _sample_idx_volume_map = attr.ib(

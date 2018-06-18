@@ -78,8 +78,8 @@ class Processor(object):
         dead_notes = set()  # type: Set[Note]
 
         while True:
-            num_amplitudes = 0
-            amplitudes_sum = 0
+            sample_volume_sum = 0
+            sample_amplitudes = 0
 
             # process the note event queue until empty
             while self._notes_event_queue:
@@ -108,11 +108,11 @@ class Processor(object):
                 except StopIteration:
                     dead_notes.add(note)
 
-                num_amplitudes += 1
-                amplitudes_sum += note_sample.amplitude
+                sample_volume_sum += note_sample.volume
+                sample_amplitudes += note_sample.volume * note_sample.amplitude
 
-            if num_amplitudes:
-                combined_samples = amplitudes_sum // num_amplitudes + 127
+            if sample_volume_sum:
+                combined_samples = sample_amplitudes // sample_volume_sum + 127
                 yield combined_samples
             else:
                 yield 127
