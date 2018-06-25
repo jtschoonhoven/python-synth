@@ -21,8 +21,8 @@ pip install -r requirements.txt
 pip3 install -r requirements.txt
 
 # do the thing
-python2 synth/keyboard.py
-python3 synth/keyboard.py
+python2 -m python_synth.keyboard
+python3 -m python_synth.keyboard
 
 # now you can play notes on your keyboard
 ```
