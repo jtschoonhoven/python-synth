@@ -8,7 +8,7 @@ from collections import deque
 from typing import TYPE_CHECKING
 
 from python_synth import helpers
-from python_synth.constants import NOTE_EVENTS, SAMPLE_BYTE_WIDTH
+from python_synth.constants import ANALOGUE_MAX, NOTE_EVENTS, SAMPLE_BYTE_WIDTH
 from python_synth.settings import (
     EVENT_QUEUE_MAX_SIZE,
     NUM_AUDIO_CHANNELS,
@@ -25,7 +25,7 @@ class NoteEvent(object):
     note = attr.attrib()        # type: Note
 
 
-@attr.attrs(slots=True)
+@attr.attrs
 class Processor(object):
     """
     The Processor collects and manages Note objects and processes them to generate a
@@ -78,6 +78,7 @@ class Processor(object):
         dead_notes = set()  # type: Set[Note]
 
         while True:
+            sample_volume_max = 0
             sample_volume_sum = 0
             sample_amplitudes = 0
 
@@ -88,7 +89,6 @@ class Processor(object):
                 if note_event.event_type == NOTE_EVENTS['NOTE_ON']:
                     note = note_event.note
                     note.set_key_down()
-                    # TODO: handle multiple Note objects for same midi note
                     self._notes[note.midi_note] = note
                     notes_on.add(note)
 
@@ -111,8 +111,12 @@ class Processor(object):
                 sample_volume_sum += note_sample.volume
                 sample_amplitudes += note_sample.volume * note_sample.amplitude
 
+                if note_sample.volume > sample_volume_max:
+                    sample_volume_max = note_sample.volume
+
             if sample_volume_sum:
-                combined_samples = sample_amplitudes // sample_volume_sum + 127
-                yield combined_samples
+                weighted_amplitude = sample_amplitudes * sample_volume_max
+                weighted_volume = sample_volume_sum * ANALOGUE_MAX
+                yield weighted_amplitude // weighted_volume + 127
             else:
                 yield 127

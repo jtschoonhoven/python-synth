@@ -11,7 +11,7 @@ from typing import NamedTuple, TYPE_CHECKING
 from six.moves import range
 
 from python_synth import helpers
-from python_synth.constants import ADSR_STATUS, ANALOGUE_MAX, KEY_STATUS
+from python_synth.constants import ADSR_STATUS, ANALOGUE_MAX
 from python_synth.exceptions import SynthError
 from python_synth.settings import SAMPLES_PER_SECOND
 from python_synth.validators import validate_analogue, validate_milliseconds
@@ -20,10 +20,10 @@ if TYPE_CHECKING:
     from typing import Any, Dict, Iterable, Tuple  # noqa
 
 
-DEFAULT_ATTACK_MS = 1000
-DEFAULT_DECAY_MS = 1000
-DEFAULT_RELEASE_MS = 1000
-DEFAULT_SUSTAIN_LEVEL = ANALOGUE_MAX // 2
+DEFAULT_ATTACK_MS = 100
+DEFAULT_DECAY_MS = 100
+DEFAULT_RELEASE_MS = 100
+DEFAULT_SUSTAIN_LEVEL = 200
 
 
 """
@@ -229,9 +229,6 @@ class Note(object):
         if sample_idx in sample_idx_volume_map:
             return sample_idx_volume_map[sample_idx]
 
-        if adsr_status == ADSR_STATUS['SUSTAIN']:
-            return sustain_level
-
         if release_sample_idx in release_sample_idx_volume_map:
             return release_sample_idx_volume_map[release_sample_idx]
 
@@ -295,15 +292,16 @@ class Note(object):
                 volume_map[sample_idx] = volume
 
         # case: no decay
-        if not attack_sustain_volume_diff:
+        if attack_sustain_volume_diff == 0:
             return volume_map
 
         # case: decay has more samples than volume changes
         if num_decay_samples > attack_sustain_volume_diff:
             samples_per_volume_decrease = num_decay_samples // attack_sustain_volume_diff
 
-            for volume in range(attack_sustain_volume_diff + 1):
-                sample_idx = volume * samples_per_volume_decrease
+            for volume in range(ANALOGUE_MAX, sustain_level - 1, -1):
+                decay_idx = samples_per_volume_decrease * (ANALOGUE_MAX - volume)
+                sample_idx = decay_idx + num_attack_samples
                 volume_map[sample_idx] = volume
 
         # case: decay has fewer samples than volume changes
@@ -311,7 +309,7 @@ class Note(object):
             volume_decrease_per_sample = attack_sustain_volume_diff // num_decay_samples
 
             for sample_idx in range(num_decay_samples):
-                volume = sample_idx * volume_decrease_per_sample
+                volume = ANALOGUE_MAX - (sample_idx * volume_decrease_per_sample)
                 volume_map[sample_idx] = volume
 
         return volume_map
@@ -329,15 +327,15 @@ class Note(object):
         num_release_samples = (release_ms * SAMPLES_PER_SECOND) // 1000
 
         # no further changes needed if volume is already at 0
-        if not start_volume:
+        if start_volume == 0:
             return volume_map
 
         # release: more samples than volume changes
         if num_release_samples > start_volume:
             samples_per_volume_decrease = num_release_samples // start_volume
 
-            for volume in range(start_volume + 1):
-                sample_idx = volume * samples_per_volume_decrease
+            for volume in range(start_volume, -1, -1):
+                sample_idx = samples_per_volume_decrease * (start_volume - volume)
                 volume_map[sample_idx] = volume
 
         # release: fewer samples than volume changes
@@ -345,7 +343,7 @@ class Note(object):
             volume_decrease_per_sample = start_volume // num_release_samples
 
             for sample_idx in range(num_release_samples):
-                volume = sample_idx * volume_decrease_per_sample
+                volume = start_volume - (sample_idx * volume_decrease_per_sample)
                 volume_map[sample_idx] = volume
 
         return volume_map
@@ -365,14 +363,16 @@ class Instrument(object):
 @attr.attrs(slots=True)
 class Synth(Instrument):
 
-    def get_note(self, midi_note, **kwargs):
+    @staticmethod
+    def get_note(midi_note, **kwargs):
         # type: (int, **Any) -> Note
-        cycles_per_second = helpers.midi_note_to_frequency(midi_note)
-        samples_per_cycle = int(SAMPLES_PER_SECOND // cycles_per_second)
 
-        def sample_generator():
+        @helpers.simple_cache
+        def sample_generator(midi_note):
             # type: () -> Iterable[int]
             sample_amplitude_array = []  # type: List[int]
+            cycles_per_second = helpers.midi_note_to_frequency(midi_note)
+            samples_per_cycle = int(SAMPLES_PER_SECOND // cycles_per_second)
 
             for sample_idx in range(samples_per_cycle):
                 # "normalize" the idx of this sample as a float between 0 and 1
@@ -389,6 +389,4 @@ class Synth(Instrument):
                 for sample_amplitude in sample_amplitude_array:
                     yield sample_amplitude
 
-        note = Note(midi_note, sample_generator(), **kwargs)
-
-        return note
+        return Note(midi_note, sample_generator(midi_note), **kwargs)
