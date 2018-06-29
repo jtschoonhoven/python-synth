@@ -2,11 +2,16 @@
 from __future__ import division
 
 from functools import wraps
+from threading import Thread
 
 import pyaudio
 import six
+from six import PY2
+from six.moves import queue
+
 
 from python_synth import constants
+from python_synth.settings import AUDIO_STREAM_CHUNK_SIZE, BUFFER_MS, SAMPLES_PER_SECOND
 
 
 def simple_cache(func):
@@ -40,6 +45,24 @@ def simple_cache(func):
     return decorated_function
 
 
+def get_samples(sample_generator, num_samples):
+    # type: (Iterable[int], int) -> Iterator[int]
+    for _ in range(num_samples):
+        sample_amplitude = next(sample_generator)
+        yield sample_amplitude
+
+
+def fill_buffer(buf, sample_generator, chunk_size):
+    # type: (queue.Queue, int) -> None
+    while True:
+        sample_iterator = get_samples(sample_generator, chunk_size)
+        if PY2:
+            chunk = ''.join(chr(sample) for sample in sample_iterator)
+        else:
+            chunk = bytes(sample_iterator)
+        buf.put(chunk, block=True)
+
+
 def get_pyaudio_stream(
     samples_per_second,  # type: int
     sample_byte_width,   # type: int
@@ -47,22 +70,24 @@ def get_pyaudio_stream(
     sample_generator,    # type: Callable[Iterator]
 ):
     # type: (...) -> pyaudio.Stream
-    generator = sample_generator()
+    sample_generator = sample_generator()
+
+    buffer_samples = int(SAMPLES_PER_SECOND * (BUFFER_MS / 1000.0)) or 1
+    buffer_chunks = (buffer_samples // AUDIO_STREAM_CHUNK_SIZE) or 1
+    chunk_buffer = queue.Queue(maxsize=buffer_chunks)
+
+    # populate buffer in a separate thread
+    thread = Thread(
+        target=fill_buffer,
+        args=(chunk_buffer, sample_generator, AUDIO_STREAM_CHUNK_SIZE),
+    )
+    thread.daemon = True
+    thread.start()
 
     def stream_callback(_, num_samples, *args):
         # type: (None, int, *Any) -> Tuple[bytes, int]
-        def _int_iterator():
-            # type: () -> int
-            for _ in range(num_samples):
-                sample_amplitude = next(generator)
-                yield sample_amplitude
-
-        if six.PY2:
-            byte_array = ''.join(chr(sample) for sample in _int_iterator())
-        else:
-            byte_array = bytes(_int_iterator())
-
-        return (byte_array, pyaudio.paContinue)
+        chunk = chunk_buffer.get(block=True)
+        return (chunk, pyaudio.paContinue)
 
     stream = constants.PYAUDIO.open(
         rate=samples_per_second,
@@ -70,6 +95,7 @@ def get_pyaudio_stream(
         channels=num_audio_channels,
         output=True,
         stream_callback=stream_callback,
+        frames_per_buffer=AUDIO_STREAM_CHUNK_SIZE,
     )
     return stream
 

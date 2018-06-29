@@ -97,9 +97,10 @@ class Processor(object):
                     note.set_key_up()
 
             # clear any notes that have ended
-            for note in dead_notes:
-                notes_on.remove(note)
-            dead_notes.clear()
+            if dead_notes:
+                for note in dead_notes:
+                    notes_on.remove(note)
+                dead_notes.clear()
 
             # then play each active note
             for note in notes_on:
